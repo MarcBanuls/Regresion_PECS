@@ -1,0 +1,513 @@
+---
+title: "banuls_marc_Reg_PEC1"
+author: "Marc Bañuls Tornero"
+date: "9/4/2020"
+output:
+  pdf_document:
+    toc: TRUE
+  html_document:
+    toc: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+# Problema 1
+
+Cargamos los datos en R:
+
+```{r}
+alcohol <- read.delim("alcohol.txt")
+```
+Como se dice en el ejercicio, vamos a trabajar con variables dicotómicas, por lo que separamos la variable **Sex** en dos variables: **Male** y **Female**. Para ello creamos las dos variables con todos los valores. Cabe destacar que al crear las dos variables mencionadas, debemos eliminar de los datos la variable **Sex**.
+
+```{r}
+alcohol$Male <- alcohol$Sex
+alcohol$Female <- alcohol$Sex
+alcohol <- alcohol[,-3]
+```
+
+Posteriormente a cada variable le indicamos con el valor "0" O "1". 
+```{r}
+alcohol$Male <- sapply(alcohol$Male, function(x) {ifelse(x == "Male", 1, 0)})
+alcohol$Female <- sapply(alcohol$Female, function(x) {ifelse(x == "Female", 1, 0)})
+```
+
+En la variable **Alcohol** tan solo indicamos como "1" a los sujetos que contienen "Alcoholic" y "0" a los sujetos que contienen "Non-alcoholic".
+
+```{r}
+alcohol$Alcohol <- sapply(alcohol$Alcohol, function(x) {ifelse(x == "Alcoholic", 1, 0)})
+```
+
+Ahora realizamos los modelos de regresión indicados:
+```{r}
+M1 <- lm(Metabol ~ Gastric + Female, data = alcohol)
+M2 <- lm(Metabol ~ Gastric + Male, data = alcohol)
+M3 <- lm(Metabol ~ Gastric + Male + Female, data = alcohol)
+M4 <- lm(Metabol ~ 0 + Gastric + Male + Female, data = alcohol)
+```
+
+
+
+## (a) Entre el modelo $M_{1}$ y el modelo $M_{2}$  está claro que $\beta _{2}^{(2)} = - \beta _{2}^{1}$. ¿Cuál es la relación entre $\beta _{0}^{2}$ y los parámetros del modelo $M_{1}$?
+
+Una manera de observar los distintos parámetros de cada modelo es investigando el resumen del modelo estadístico con los datos de la tabla, es decir, ajustando los modelos indicados y observando los valores de los distintos coeficientes:
+
+```{r}
+summary(M1)
+summary(M2)
+```
+
+Observamos que $\beta _{0}^{2} = \beta _{0}^{1} + \beta _{2}^{1}$. Es decir, la suma del intercepto y el coeficiente de la variable **Female** del modelo 1 equivalen al intercepto del modelo 2.
+
+## (b) ¿Cuál es la diferencia en término medio de **Metabol** entre hombres y mujeres que tienen un mismo nivel alcohol deshidrogenasa?
+Para responder la pregunta debemos observar los coeficientes de los modelos lineares generados. Concretamente, el coeficiente de la variable **Male** en el modelo $M_{1}$ o el coeficiente de la variable **Female** del modelo $M_{2}$ nos dan la respuesta al apartado (ya que al tener una correlación perfecta el resultado del coeficiente en ambos modelos es el mismo pero con el valor invertido). Por lo tanto, podemos decir que los hombres tienen un valor medio de la variable **Metabol** 1.6174 veces superior a las mujeres.
+
+## (c) De los cuatro modelos $M_{i}, i = 1,...,4$, ¿cuál es el mejor según el coeficiente de determinación? ¿y según el RMSE?
+Observamos el coeficiente de determinación de los 4 modelos:
+```{r}
+summary(M1)$r.squared
+summary(M2)$r.squared
+summary(M3)$r.squared
+summary(M4)$r.squared
+```
+
+Los tres primeros modelos técnicamente son iguales debido a que las variables **Male** y **Female** aportan la misma información, así que independientemente de si ponemos una u otra u ambas, la información disponible para explicar la variación de los valores en la regresión es la misma. En cambio, el modelo $M_{4}$  tiene un mayor coeficiente de determinación (pasando de 0.76 a 0.87). Esto puede ser debido a que empezando el modelo a partir del punto 0 (al haber indicado que el intercepto es 0) el modelo puede haber explicado mejor la variación de los valores.   
+El RMSE es la raíz cuadrada de la media de los residuos del modelo al cuadrado, por lo que utilizamos los valores de los residuos de cada modelo para calcular su RMSE:
+
+```{r}
+sqrt(mean(M1$residuals^2))
+sqrt(mean(M2$residuals^2))
+sqrt(mean(M3$residuals^2))
+sqrt(mean(M4$residuals^2))
+```
+Como el RMSE nos indica las diferencias entre los valores predecidos por el modelo y los valores observados de la tabla y en los cuatro modelos estamos utilizando los mismos valores, los valores de RSME de los cuatro modelos son iguales, en este caso siendo el RSME de 1.267378.
+
+## (d) ¿Cuál es el rango de la matriz de diseño del modelo $M_{3}$? Resolver las ecuaciones normales para este modelo y hallar una estimación alternativa de los parámetros con la ayuda de la g-inversa de Moore-Penrose. Comprobar que los residuos son los mismos que proporciona R con la función *lm()*.
+Observamos la matriz de diseño del modelo:
+```{r}
+head(model.matrix(M3))
+```
+
+Podemos ver que la matriz tiene 3 variables independientes. El intercepto, la variable **Gastric** y el sexo (las variables **Male** y **Female** son dependientes entre ellas). De igual manera se puede medir el rango de la matriz dentro del propio modelo ajustado:
+
+```{r}
+M3$rank
+```
+
+Por lo tanto confirmamos que la matriz de diseño es de rango 3.
+
+Para realizar las ecuaciones normales mediante la g-inversa del Moore-Penrose, utilizamos el paquete *MASS*. Señalamos como valor respuesta la variable **Metabol** y como predictores las otras variables del modelo, y realizamos la ecuación normal:
+
+```{r}
+library(MASS)
+```
+
+```{r}
+y <- alcohol$Metabol
+x <- model.matrix(M3)
+```
+
+```{r}
+betas <- ginv(t(x) %*% x) %*% t(x) %*% y
+```
+
+De esta manera hemos obtenido los coeficientes mediante la g-inversa de Moore-Penrose. Ahora obtenemos los residuos:
+
+```{r}
+residuos <- y - x %*%  betas
+head(residuos)
+```
+
+Ahora comprobamos que los residuos obtenidos son los mismos que en el ajuste en R:
+```{r}
+head(M3$residuals)
+```
+
+Como podemos observar, los residuos calculados con la ayuda de la ginversa de Moore-Penrose son iguales que los calculados mediante el ajuste realizado con la función `lm()`.   
+
+
+## (e) Hallar el intervalo de confianza de la función paramétrica  $\beta _{0}^{(2)} + \beta _{1}^{2}$ en el modelo $M_{2}$.
+
+Obtenemos los valores de x e y del modelo M2 y obtenemos las betas como en el apartado anterior.
+
+```{r}
+y <- alcohol$Metabol
+x_M2 <- model.matrix(M2)
+```
+
+```{r}
+betas_M2 <- ginv(t(x_M2) %*% x_M2) %*% t(x_M2) %*% y
+```
+
+Calculamos además la varianza de los errores  $\sigma ^{2}$ junto con los valores necesarios para ello.
+
+```{r} 
+a <- c(1,1,0)
+n <- length(y)
+r <- M2$rank
+residuos_M2 <- y - x_M2 %*% betas_M2
+sigma2 <- sum(residuos_M2^2)/(n - r)
+var.error <- sigma2 * t(a) %*% ginv(t(x_M2) %*% x_M2) %*% a
+```
+
+Ahora con los valores obtenidos realizamos el intervalo de confianza al 95% del modelo:
+
+```{r, warning=F}
+int_conf <- sum(a * betas_M2) + c(-1,1) * qt(0.975, n-r) * sqrt(var.error)
+print(int_conf)
+```
+
+
+## (f) Comparar las rectas de regresión que relacionan el metabolismo **Metabol** con la actividad gástrica **Gastric** para hombres y para mujeres. ¿Son paralelas? ¿Son iguales? 
+
+Para obtener las rectas de regresión se separan los datos de la tabla alcohol por sexos mediante subsets en la función `lm()`:
+```{r}
+lm_alcohol_hombres <- lm(Metabol ~ Gastric, data = alcohol, sub = Male == 1)
+lm_alcohol_mujeres <- lm(Metabol ~ Gastric, data = alcohol, sub = Female == 1)
+```
+
+Ahora podemos observar mediante un gráfico de dispersión los datos y las lineas obtenidas en cada modelo:
+```{r}
+plot(Metabol ~ Gastric, pch=ifelse(Male== 1,1,16), data=alcohol, main = "Comparación de rectas de regresión") #Los hombres son los círculos blancos, las mujeres son los círculos negros
+abline(lm_alcohol_hombres, lty=1) #Línea contínua
+abline(lm_alcohol_mujeres, lty=2) #Línea discontínua
+```
+
+En el gráfico observamos que estas rectas parecen tener una intersección en el origen y la clara diferencia entre las pendientes de ambas rectas implica que las rectas no son paralelas y consecuentemente tampoco son iguales.   
+
+## (g) Si consideramos el modelo completo con interacciones, ¿Podemos prescindir de todas las interacciones y también de la variable **Alcoholic** y quedarnos con el modelo $M_{2}$?
+
+Para responder a la pregunta, ajustamos el modelo completo con interacciones propuesto (la variable **Alcoholic** del enunciado se llama en nuestra tabla de datos **Alcohol**, ya que en vez de crear una nueva variable con los datos dicotómicos, hemos modificado la variable inicial **Alcohol** directamente):
+
+```{r}
+M_complete <- lm(Metabol ~ Gastric + Male + Alcohol + Gastric*Male + Gastric*Alcohol + Male*Alcohol + Gastric*Male*Alcohol, data = alcohol)
+```
+
+Ahora observamos la significación de las distintas variables y sus interacciones en el resumen del modelo ajustado:
+
+```{r}
+summary(M_complete)
+```
+
+Los p-valores del test estadístico t para cada predictor o interacción entre estos nos indica si estos predictores o interacciones son significativos o no para el ajuste del modelo con los datos que tenemos (la hipótesis nula del test es que el coeficiente del predictor o la interacción es 0). En la tabla resumen observamos que tan solo la interacción entre la variable **Gastric** y la variable **Male** rechaza la hipótesis nula del t-test, implicando que esta interacción es la única que presenta una relación significativa entre esta interacción y los datos de la tabla *alcohol*.   
+
+Para saber si podemos prescindir de las interacciones y de la variable **Alcoholic** (en nuestro caso **Alcohol**) comparamos el modelo completo con el modelo $M_{2}$, el cual es precisamente el modelo del que ha anidado el modelo completo. Para comparar modelos anidados realizamos un F-test, donde se realiza un contraste de la hipótesis nula en que la variación entre estos dos modelos no es significativa:
+
+```{r}
+anova(M_complete,M2)
+```
+
+El F-valor mayor a 0.05 nos indica que no hay una variación significativa entre los modelos. Por lo tanto, en caso de elegir qué modelo usar elegiríamos el modelo más simple, es decir, el modelo $M_{2}$.
+
+
+# Problema 2
+
+Para poder realizar este ejercicio primero guardamos los datos del archivo senic.txt en una tabla de datos llamada **senic**:
+
+```{r}
+senic <- read.table("senic.txt", header = T)
+```
+
+
+## (a) Calcular la matriz de correlaciones entre las variables que sea posible. ¿Qué variables son las más correlacionadas con **infrisk**? Añadir algún gráfico adecuado. Dibujar los gráficos de caja (*boxplot*) para la variable **infrisk** primero separados según la variable **medschl** y después según **region**. ¿El riesgo de infección es igual en todas las regiones? ¿Y según la variable **medschl**?. Nota: Plantear las dos últimas preguntas como un contraste de modelos con la función **anova()**.
+
+Para realizar la matriz de correlaciones entre las variables del estudio senic utilizamos la función `cor()`. Cabe tener en cuenta que como la variable id no proporciona ningún valor significativo, descartamos dicha variable de la matriz de correlaciones. 
+```{r}
+senic <- senic[,-1]
+```
+
+Modificaremos la variable **region** para que sea factorial, y de esta manera se puedan interpretar los valores para cada región por separado. Por ello, para realizar la matriz de correlación, deberemos descartar esta variable (ya que una variable categórica no puede ser interpretada correctamente en una matriz de correlaciones). Además modificaremos los valores de la variable **medschl** a valores dicotómicos, es decir, el valor 1 implicará que el hospital no está afiliado a una escuela médica y el valor 0 que el hospital no está afiliado. 
+
+```{r}
+senic$region <- factor(senic$region, levels = c(1,2,3,4), labels = c("NE", "NC", "S", "W" ))
+senic$medschl <- factor(senic$medschl, levels = c(1,2), labels = c("Afiliado", "No afiliado" ))
+senic_no_categorical <- senic[,-c(7:8)]
+```
+
+
+```{r}
+cor.matrix <-cor(senic_no_categorical)
+round(cor.matrix, 2)
+```
+
+Las variables que tienen una mayor correlación con la variable **infrisk** son las variables **culratio**,  **stay** y **xratio** con un coeficiente de correlación de 0.56, 0.53 y 0.45 respectivamente.   
+Para poder visualizar con un gráfico las correlaciones, podemos usar el paquete de R `corrplot`:
+
+```{r}
+require(corrplot)
+corrplot(cor.matrix)
+```
+En este gráfico también se pueden observar visualmente que las variables mencionadas anteriormente son las que tienen una mayor correlación con la variable **infrisk**.
+
+Ahora nos disponemos a visualizar en un gráfico de cajas la variable **infrisk** separados según la variable **medschl**:
+```{r}
+boxplot(infrisk ~ medschl, data = senic, main = "Probabilidad de infección en hospital según afiliación a una escuela médica",
+        cex.main = 0.9, xlab = "Afiliado a escuela médica", ylab = "Probabilidad de infección")
+```
+En este gráfico de cajas se observa que los hospitales afiliados y no afiliados tienen algún outlier y los hospitales no afiliados tienen unos cuartiles 1 y 4 significativamente separados del rango de intercuantiles (IQR), donde la mayor parte de valores se encuentra. Además, observamos que las medianas entre hospitales afiliados y no afiliados son distintas, aunque no parecen encontrarse suficientemente separadas como para ser significativas.   
+
+
+También realizamos el respectivo boxplot de la variable **infrisk** según la variable **region**:
+
+```{r}
+boxplot(infrisk ~ region, data = senic, main = "Probabilidad de infección según región",
+        cex.main = 0.9, xlab = "Región", ylab = "Probabilidad de infección")
+```
+
+En este gráfico de cajas se observa que las medianas entre regiones no cambian en gran medida y que su IQR cambia levemente entre regiones, observando por ejemplo que la región S suele tener la menor probabilidad de infección.   
+
+Para saber objetivamente si hay variación del riesgo de infección según regiones o según la variable **medschl** y **region** realizaremos un modelo de regresión para cada contraste de hipótesis y posteriormente realizaremos un análisis de varianza de cada modelo utilizando la función `anova()`. De esta manera, sabremos si existe una correlación entre estas variables y **infrisk**.
+
+Primero averiguamos la variación del riesgo de infección según la variable **medschl**
+
+```{r}
+lm_medschl <- lm(infrisk ~ medschl, data = senic)
+anova(lm_medschl)
+```
+
+Con un p-valor del F test menor a 0.05 podemos decir que hay una variación significativa entre estar o no afiliado a una escuela médica en relación a la probabilidad de infección. Esto indica que el riesgo de infección si que varía según la variable **medschl**.   
+
+Ahora analizamos si el riesgo de infección es igual en todas las regiones (variable **region**). 
+
+```{r}
+lm_region <- lm(infrisk ~ region, data = senic)
+anova(lm_region)
+```
+
+Con un p-valor del F test menor a 0.05, también podemos afirmar que hay una variación significativa entre las distintas regiones en relación a la probabilidad de infección. De esta manera confirmamos que el riesgo de infección no es igual en todas las regiones, es decir, la variable **infrisk** varía significativamente según el valor de la variable **region**.
+
+
+## (b) Calcular el modelo de regresión que tiene como variable respuesta **infrisk**. Escribir el modelo obtenido. ¿es significativa la variable **region**? ¿Cómo interpretas el coeficiente de la variable **medschl**? ¿Y el de **stay**?
+
+Calculamos el modelo que se pide:
+
+```{r}
+lm_infrisk <- lm(infrisk ~ ., data = senic)
+```
+
+Realizamos ahora el resumen estadístico del modelo:
+
+
+```{r}
+summary(lm_infrisk)
+```
+
+Si consideramos que la hipótesis nula es que la variable **region** no es significativa con un nivel de significación de $\alpha = 0.05$ entonces como el p-valor del t test de uno de los niveles en esta variable **region** es menor a 0.05 (concretamente, 0.001) podemos decir que almenos un factor de esta variable es significativa, es decir, es un predictor que tiene una relación lineal con la variable respuesta **infrisk**, cosa que hemos confirmado en el anterior apartado.   
+
+En la variable **medschl** se observa sólo uno de los dos niveles de esta variable (tal y como ocurre también con la variable **region**), ya que para variables categóricas, utilizamos uno de los niveles como referencia (con su coeficiente = 0). Por lo tanto, el coeficiente mostrado en el resumen estadístico indica que cuando el hospital no está afiliado a una escuela médica, el riesgo de infección es 0.66 veces mayor que cuando el hospital sí está afiliado a una escuela médica.      
+
+La variable **stay** al ser una variable contínua nos indica que cada día de promedio de estancia que pasan los pacientes en el hospital aumenta el porcentaje del riesgo de infección en un 0.24%.
+
+## (c) Utilizar un test  *F* para determinar la significación de la regresión del modelo. Escribe las hipótesis de este test e interpreta el resultado obtenido. ¿Qué predictoras son significativas al 5%? ¿Concuerdan estas variables con las del apartado (a)? ¿Cuáles son las variables más correlacionadas? ¿Y las que menos? ¿Concuerdan con los resultados del modelo de regresión?
+En el resumen anterior ya se realiza un F-test donde se rechaza la hipótesis nula (no existe ninguna relación lineal entre la variable respuesta y los predictores del modelo) por tener un p-valor inferior a 0.05, por lo que se afirma que almenos un predictor contribuye significativamente al modelo. Para determinar la significación de la regresión reproducimos la tabla anova del modelo de regresión utilizando la función `aov()` y creando su respectivo resumen estadístico. En este caso tenemos una hipótesis nula para cada predictor. La hipótesis nula es que el predictor en concreto no tiene una relación lineal con la variable respuesta. Realizando el contraste de hipótesis para cada variable resolveremos qué predictores contribuyen significativamente al modelo de regresión estudiado:
+
+```{r}
+aov.lm_infrisk <- aov(lm_infrisk)
+summary(aov.lm_infrisk)
+```
+
+En el resumen estadístico observamos que las variables significativas al 5% (p-valor menor a 0.05), es decir, los predictores que contribuyen significativamente al modelo de regresión, son las variables **stay**, **culratio**, **xratio**, **nbeds**, **region**, y **service**. Estas variables concuerdan en cierta medida con las del apartado (a), ya que las variables que tienen un menor p-valor (las que con más certeza se demuestra que existe una relación lineal entre el predictor concreto y la variable respuesta) son las que mayor correlación se observa en la matriz de correlaciones. Las variables más correlacionadas que concuerdan con las correlaciones obtenidas en el apartado (a) son las variables **stay**, **culratio** y **xratio** (ya que son las más significativas con un p-valor menor). Las variables que menor correlación tienen son las que tienen un p-valor mayor a 0.05 (aceptando la hipótesis nula), que son concretamente las variables **age**, **medschl**, **census** y **nurses**. En términos generales las variables más o menos relacionadas con la variable **infrisk** obtenidas con el F-test concuerdan con el test de correlación.  
+
+Comparando los predictores más significativos del resumen realizado en el modelo de regresión (mediante un t-test) coinciden varios predictores en su significancia excepto en algunos casos. Concretamente, la variable **nbeds** no es significativa según el t-test, pero sí lo es según el F-test. De igual manera, en el F-test la variable **medschl** no es significativa, pero sí lo es según el t-test.
+
+## (d) Si amplificamos el modelo tomando únicamente las variables significativas al 5%, contrastar si se puede aceptar ese modelo simplificado frente al completo.
+
+Ajustamos el modelo con las variables significativas al 5% mencionadas en el anterior apartado:
+
+```{r}
+lm_infrisk_signf <- lm(infrisk ~ stay + culratio + xratio + medschl + region + service, data = senic)
+```
+
+Ahora realizamos un test ANOVA para comparar el modelo completo con el anidado. La hipótesis nula de este contraste es que no hay diferencias significativas entre los dos modelos (la varianza entre estos dos modelos es 0).
+
+```{r}
+anova(lm_infrisk_signf, lm_infrisk)
+```
+
+Con un nivel de significación del 5% como tenemos un p-valor del F-test mayor a 0.05, aceptamos la hipótesis nula del contraste, es decir, no hay diferencias significativas entre los dos modelos. Por ello aceptamos el modelo simplificado frente al completo, ya que de esta manera con menos predictores obtenemos un modelo con una efectividad similar (se recomienda generalmente utilizar modelos con menor cantidad de predictores si los que se eliminan o no se añaden al modelo no mejoran el modelo).
+
+## (e) Consideramos ahora el modelo con las variables: **stay**, **culratio** y **region**. Estudia la normalidad y la heterocedasticidad del error. ¿Hay alguna observación con un alto leverage? ¿ Y con una gran influencia? Dibujar los gráficos oportunos para explicar los resultados.
+
+Ajustamos el modelo con las variables mencionadas.
+
+```{r}
+lm_e <- lm(infrisk ~ stay + culratio + region, data = senic)
+summary(lm_e)
+```
+
+Para estudiar la normalidad visualmente podemos presentar los gráficos del modelo para observar si los errores siguen una distribución normal. Para ello creamos un gráfico Q-Q normal (la función `plot()` presenta 4 gráficos, pero para la normalidad necesitamos tan solo éste gráfico) y un histograma de los residuos:
+```{r}
+plot(lm_e,2)
+hist(lm_e$residuals, main = "Histograma de residuos del modelo lm_e",
+     xlab = "Residuos", ylab = "Frecuencia")
+```
+
+Observando el gráfico Q-Q de normalidad (Q-Q plot) se distingue una línea recta de los residuos estandarizados, indicando que es probable que los residuos se encuentren normalmente distribuidos. Además en el histograma de los residuos se intuye la forma de campana de Gauss típica de una dsitribución normal, aunque tampoco nos da la certeza de que estos residuos siguen una distribución normal. Para estudiar con más profundidad la normalidad del modelo, podemos realizar un test de normalidad de Shapiro-Wilk o de Kolgomorov-Smirnov. En nuestro caso utilizamos el test de Shapiro-Wilk, teniendo como hipótesis nula que el modelo sigue una distribución normal.
+
+```{r}
+shapiro.test(lm_e$residuals)
+```
+
+Si utilizamos un nivel de significación del 5% y siendo el p-valor mayor a 0.05, aceptamos la hipótesis nula. Por lo tanto confirmamos que los residuos siguen una distribución normal.   
+
+Para estudiar visualmente la homocedasticidad de los residuos (que los residuos del modelo presenten una misma o similar varianza). Para visualizar si los residuos presentan o no homocedasticidad podemos observar otro gráfico del modelo creado mediante la función `plot`:
+   
+   
+```{r}
+plot(lm_e,3)
+```
+
+El gráfico nos presenta los valores ajustados respecto a los residuos del modelo estandarizados. Para demostrar los residuos presentan homocedasticidad, dichos residuos deberían estar distribuidos de manera aleatoria por todo el gráfico de manera similar, dando una línea de la media de los residuos estandarizados distribuidos (la línea roja) horizontal. En el caso de los residuos de nuestro modelo, se observa que no hay una perfecta homocedasticidad, aunque en este caso no se puede saber concretamente si la varianza de los residuos es los suficiente significativa para no asumir que homocedasticidad. Para ello, utilizaremos el test estadístico de Breusch-Pagan que presenta como hipótesis nula que los residuos presentan homocedasticidad con un 5% de sgnificación:
+
+
+```{r}
+require(car, quietly = T)
+ncvTest(lm_e)
+```
+
+Con un p-valor muy superior al 5% de significación, se confirma que aceptamos la hipótesis nula, asumiendo la homocedasticidad de los residuos.   
+
+Para saber si hay alguna observación con un alto leverage o una gran influencia, podemos observar otros gráficos creados mediante la función `plot()`, como por ejemplo la distancia de Cook o el gráfico de Residuals vs Leverage:
+```{r}
+par(mfrow=c(1,2))
+plot(lm_e,4)
+plot(lm_e,5)
+```
+
+El gráfico de Residuals vs Leverage indica con su nombre (el número de la muestra en nuestro caso) los tres valores más extremos, que son las muestras 8, 112 y 47, que pueden verse además en el gráfico de la distancia de Cook. Para ver si estos valores con un alto leverage (llamados también outliers) tienen una alta influencia en el modelo, podemos utilizar de igual manera el gráfico de Residuals vs Leverage. Los outliers marcados anteriormente son los que pueden tener una influencia significativa en el modelo, pero para que estos outliers puedan afectar de manera significativa, deberían encontrarse por encima de la línea discontínua de la esquina superior derecha o por debajo de la línea discontínua de la esquina inferior derecha del gráfico mencionado (valor de los residuos estandarizados menor a -2 o superior a 2 con una distancia de Cook superior a 0.3 por norma general). Como en nuestro modelo los outliers no se encuentran en esas posiciones del gráfico, podemos confirmar que no tienen una influencia significativa en el ajuste del modelo de regresión lineal.
+
+## (f) Un amigo americano está a punto de entrar en un hospital. Quiere saber el intervalo de confianza al 90% para la predicción del riesgo de infección utilizando el modelo del apartado anterior. Sabe que el hospital tiene los valores de **stay**= 9.6 días, **culratio**=15.5 y **region**=NE.
+
+Como tenemos el modelo lineal del apartado anterior, podemos utilizar la función `predict()` con el intervalo de confianza indicado. Introducimos primero los valores de **stay**, **culratio** y **region** en un nuevo dataframe para que tenga en cuenta los valores a partir los cuales se quiere predecir el riesgo de infección.
+
+```{r}
+new_hospital <- data.frame(stay = 9.6, culratio = 15.5, region = "NE")
+predict(lm_e, newdata = new_hospital, interval = "prediction", level = 0.90)
+```
+
+Según la predicción sobre el modelo lineal del apartado anterior y con los datos de las variables aportados, en un intervalo del 90% de confianza, el riesgo de infección que tiene se encuentra entre el 2.37% al 5.67%, con una media del 4.02% de riesgo de infección.
+
+## (g) En la estimación el modelo del apartado (e), el coeficiente de **region==NE** no aparece. ¿Puedes dar alguna explicación? Observar las tres últimas columnas de la matriz de diseño del modelo ¿Cómo se codifican los 4 valores del factor **region**? ¿Cómo se calcula *a mano* una predicción para un hospital con **region==NE** con la ecuación de este modelo? Si ejecutamos la siguiente instrucción: **options(contrasts=c('contr.sum','contr.poly'))** y recalculamos la estimación del modelo, ¿cómo se codifican ahora los 4 valores del factor **region**? Ahora, ¿cómo se calcula *a mano* una predicción para un hospital con **region==NE** con la ecuación de este otro modelo?
+Observamos el resumen estadístico, la matriz de contrastes en forma "treatment" y la matriz de diseño del modelo:
+```{r}
+summary(lm_e)
+```
+
+```{r}
+contr.treatment(4)
+```
+
+
+```{r}
+head(model.matrix(lm_e))
+```
+
+
+El coeficiente de la variable **region** cuando **region==NE** no aparece porque se utiliza dicha región como coeficiente base de las regiones de la variable (pudiendose ver en la matriz de contraste, donde el primer factor tiene valor 0). Es decir, esta región tiene un coeficiente 0 y se utiliza como región de referencia para comparar con las otras regiones y obtener un coeficiente de éstas.En la matriz de diseño esto se observa de manera que la región "NE" se identifica cuando las otras tres regiones tienen como valor 0 (como se puede observar en la muestra 5 de la matriz de diseño). Para las otras regiones, la región de la muestra se identifica como valor 1 mientras que las otras regiones se identifican como 0, para así determinar qué región es la que posee la muestra.
+Para calcular a mano una predicción para un hospital con **region == NE** deberemos identificar aparte los valores de **culratio** y **stay** y resolver la ecuación $infrisk = -0.16 + 0.34 * stay + 0.058 * culratio + 0$ donde hemos identificado el coeficiente de NE como 0 (como hemos comentado anteriormente).   
+
+Recalculamos ahora el modelo del apartado (e) introduciendo previamente la instrucción mencionada en el enunciado:
+
+```{r}
+options(contrasts=c('contr.sum','contr.poly'))
+```
+
+```{r}
+lm_e_recalculated <- lm(infrisk ~ stay + culratio + region, data = senic)
+```
+
+Realizamos el resumen estadístico del modelo recalculado junto con su matriz de diseño:
+```{r}
+summary(lm_e_recalculated)
+```
+Observamos ahora para saber como funcionan los parámetros de contrastes la matriz de contraste para cuatro variables, junto con la matriz del modelo para observar los ejemplos de algunas observaciones:
+```{r}
+contr.sum(4)
+```
+
+```{r}
+head(model.matrix(lm_e_recalculated))
+```
+
+En esta matriz de contraste se indica en cada columna los contrastes realizados. Por ejemplo en la primera columna se calcula la diferencia entre el primer y último nivel del factor que en nuestro caso entonces sería la diferencia entre NE y NW. En las siguientes columnas se realiza el mismo contraste con la diferencia entre la segunda región con la última y la tercera con la última respectivamente, indicando que siempre utilizaremos como base en este caso el último nivel del factor (NW).
+
+En este caso los coeficientes se obtienen con las diferencias entre distintos pares de regiones. Por lo tanto, si queremos realizar a mano la misma predicción que en el caso anterior, tenemos que realizar la ecuación con los coeficientes de manera distinta, aunque el resultado será el mismo. La predicción del modelo entonces sería $infrisk = 0.22 + 0.34 * stay + 0.058 * culratio - 0.3875 * 1$.
+
+
+Para devolver las opciones a como estaban anteriormente:
+```{r}
+options(contrasts=c("contr.treatment","contr.poly"))
+```
+
+
+## (h) Consideremos  ahora el modelo con 4 variables regresoras: **stay, **age**, **xratio** y **medschl**. Alguien sugiere que el efecto de **medschl** sobre el riesgo de infección puede interactuar con **age** y con **xratio**. Añadir los términos de interacción apropiados al modelo de regresión, ajustar el modelo ampliado y contrastar si los términos de interacción ayudan. Usar $\alpha = 0.1$. Indicar la hipótesis nula, la alternativa, la regla de decisión y la conclusión.
+
+Primero ajustamos un modelo con las cuatro variables regresoras:
+
+```{r}
+lm_h <- lm(infrisk ~ stay + age + xratio + medschl, data = senic)
+```
+
+
+Ahora ajustamos el modelo ampliado con interacciones sugerido:
+```{r}
+lm_h_inter <- lm(infrisk ~ stay + age + xratio + medschl + medschl * age + medschl * xratio, data = senic)
+```
+
+Para saber si los términos de interacción añadidos al modelo ampliado ayudan a mejorar el modelo, podemos realizar una comparación del modelo ampliado con el modelo más simple. Como el modelo más simple es un modelo anidado del ampliado, podemos realizar un F-test. La hipótesis nula del contraste de hipótesis es que la variación entre estos dos modelos no es significativa. Por lo tanto la hipótesis alternativa es que sí que hay una variación significativa entre estos modelos. La regla de decisión que aplicaremos la basaremos en el nivel de significación determinado en el enunciado, es decir, , con un $\alpha =0.1$. Esto implica que si el p-valor del F-test es mayor que alfa (0.1), se aceptará la hipótesis nula, y si el p-valor es menor que alfa, entonces se rechazará la hipótesis nula. Dicho esto, ahora realizamos el F-test:
+
+```{r}
+anova(lm_h_inter,lm_h)
+```
+
+Como el p-valor del F-test es mayor al nivel de significancia estipulado (aunque por poco), aceptamos la hipótesis nula. Por lo tanto, confirmamos que con este nivel de significancia consideramos los dos modelos similares. Por ello, nos quedaremos preferiblemente con el modelo más simple, es decir, el modelo que no tiene interacciones. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
