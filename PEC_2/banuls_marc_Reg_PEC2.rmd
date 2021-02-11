@@ -1,0 +1,685 @@
+---
+title: "PEC 2 Regresión modelos y métodos"
+author: "Marc Bañuls Tornero"
+date: "21/6/2020"
+output:
+  pdf_document:
+    toc: TRUE
+  html_document:
+    toc: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, echo=FALSE}
+library(faraway)
+library(car)
+library(leaps)
+library(pls)
+library(MASS)
+library(caret)
+library(lmridge)
+library(ResourceSelection)
+library(glmnet)
+```
+
+# Ejercicio 1
+
+
+Se cargan los datos en R:
+
+```{r}
+peru1 <- read.delim("peru.txt")
+```
+
+Debido a que se el ejercicio pide unas variables concretas para el análisis de los datos encontrados en "peru.txt", adaptamos estos datos en una nueva tabla:
+
+```{r}
+Fraction <- peru1$Years / peru1$Age
+peru <- data.frame(peru1$Age, peru1$Years, Fraction, peru1$Weight, peru1$Height, peru1$Chin, peru1$Forearm, peru1$Calf, peru1$Pulse, peru1$Systol)
+colnames(peru) <- c("Age", "Years", "Fraction", "Weight", "Height", "Chin", "Forearm", "Calf", "Pulse", "Systol")
+```
+
+Posteriormente realizamos el modelo de regresión múltiple deseado:
+
+```{r}
+lm_peru <- lm(Systol ~. , data = peru)
+```
+
+## (a) Estudiar la posible multicolinealidad de este modelo
+
+La multicolinealidad es la presencia de una correlación alta entre más de dos variables en un modelo de regresión múltiple, por lo que se han de buscar en el modelo ajustado más de dos variables con una alta correlación.   
+
+Para saber si existe multicolinealidad en el modelo, se puede primero observar el resumen de éste:
+```{r}
+summary(lm_peru)
+```
+
+Tan solo parece que las variables *Age*, *Years*, *Fraction*, y *Weight* y su intercepto son significantes al rechazar la hipótesis nula del t-test (p-valor menor a 0.05) a la hora de ajustar el modelo. Además el coeficiente de determinación tan solo explica el 56% de la variación del modelo. observándose que existen pocas variables realmente significativas, sabiendo además que la variable *Fraction* procede de las variables *Age* y *Years*.   
+
+Para observar el ajuste del modelo se puede visualizar el resumen de gráficos del modelo:
+```{r}
+plot(lm_peru)
+```
+El gráfico de residuos contra valores ajustados se observa que aparte de algunos outliers los residuos se encuentran bien distribuidos. Observando la gráfica de normalidad se observa que los residuos siguen principalmente una distribución normal. La gráfica de los valores ajustados contra los residuos estandarizados indica que éstos no siguen un patrón o tendencia concreta, indicando que el modelo tiene homocedasticidad de la varianza. La última gráfica permite detectar los outliers que más afectan al ajuste del modelo, indicado con la distancia de Cook. En este caso la observación 8 es el outlier que más significativamente afecta al ajuste del modelo.
+
+Para obtener pruebas de una posible multicolinealidad se realiza una tabla de correlaciones:
+
+```{r}
+round(cor(peru),2)
+```
+
+Se observa que hay una elevada cantidad de correlaciones. Por ejemplo, la variable *Years* está altamente correlacionada con *Fraction* y en cierta medida con *Age*. También se observan correlaciones positivas entre *Weight* con *Chin* y *Forearm*, entre los propios *Chin* y *Forearm*, y entre *Calf* y *Forearm*. Estas correlaciones tienen cierto sentido en la interpretación de los datos (a mayor peso, generalmente aumenta la cantidad de piel en las distintas zonas donde se acumula grasa, como en el antebrazo o el mentón).   
+
+Ahora se realiza la decomposición de eigen de $X^T X$:
+
+```{r}
+x <- model.matrix(lm_peru)
+e <- eigen(t(x) %*% x)
+e$val
+sqrt(e$val[1]/e$val)
+```
+
+Se observa que existen en el modelo unos valores elevados en distintos "eigenvalues." Esto implica que existe más de una combinación linear.   
+
+Ahora se comprueba el factor de inflación de la varianza (FIV):
+
+```{r}
+car::vif(lm_peru)
+```
+
+Se encuentra inflación elevada de la varianza, principalmente en las variables *Years* y *Fraction*, indicando así una muy elevada colinealidad.Además se encuentran las variables *Weight*    y *Age*, que también tienen valor suficiente para indicar una posible colinealidad.
+
+Por lo mencionado en los análisis de las variables hechos parece que sí que existe multicolinealidad.   
+
+## (b) Eliminar una única observación de la muestra de forma que el modelo mejore apreciablemente. Razonar la elección.
+
+La observación que más sentido tiene eliminar del modelo es la que se aleje más significativamente de otras observaciones (desviando la media y modificando el ajuste del modelo). Por lo tanto se busca el outlier más significativo:
+```{r}
+outlierTest(lm_peru)
+```
+
+Se indica que el outlier significativo está producido por la observación 8. Por ello se ajusta un nuevo modelo sin esta observación para saber si se realiza un mejor ajuste.
+
+```{r}
+peru_n <- peru[-8,]
+lm_peru_n <- lm(Systol ~. , data = peru_n)
+summary(lm_peru_n)
+```
+
+El coeficiente de determinación ha aumentado de 0.56 a 0.61 tan solo eliminando el outlier más significativo, además de aumentar el nivel de significación de las variables ya significativas previamente, por lo que parece una buena idea descartar esta observación para mejorar el ajuste del modelo.
+
+## (c) Con los 38 datos restantes, hallar el "mejor" modelo consensuado por dos métodos diferentes de selección de variables como, por ejemplo $R^{2}_{adj}$ y $C_p$ de Mallows
+
+Se realiza el método de selección de variables de $R^{2}_{adj}$:
+
+```{r}
+b <- regsubsets(Systol~., data=peru_n)
+rs <- summary(b)
+rs$adjr2
+```
+Se puede observar además gráficamente qué número de predictores es el que tiene un $R^{2}_{adj}$ óptimo:
+```{r}
+k <- length(rs$rss)
+p <- k + 1 
+plot(1:k,rs$adjr2, xlab="Número de predictores",
+     ylab="R2 ajustado")
+
+```
+
+
+Se puede observar que el coeficiente de determinación ajustado más elevado es el que contiene 7 predictores, aunque su valor entre 5 y 7 predictores no es muy distinto (de 0.61 a 0.63) disminuyendo su valor en los 8 predictores.
+
+Ahora se realiza el método de selección de variables de $C_p$ de Mallows:
+
+```{r}
+rs$cp
+```
+También se puede observar con otro gráfico para facilitar la interpretación:
+```{r}
+plot(2:p,rs$cp, xlab="Numero de parámetros",
+     ylab="Estadístico Cp")
+abline(a=0,b=1)
+```
+
+El mejor valor del estadístico $C_p$ se encuentra en los 6 parámetros (7 predictores), concordando con el $R^{2}_{adj}$ óptimo.
+
+### (i) ¿Cuáles son las variables seleccionadas?
+
+Como en ambos modelos se prefiere el uso de los 7 mejores predictores, se descartan las variables menos significativas para el ajuste del modelo (los que tengan su p-valor más elevado). Para ello también podemos observar el RSS mínimo:
+```{r}
+rs$which
+```
+
+Los predictores menos significativos entonces son *Pulse* y *Calf*, por lo que los descartamos para ajustar un nuevo modelo, y seleccionamos las restantes.
+
+### (ii) ¿Cual es el coeficiente de determinación ajustado de este modelo? Compararlo con el del modelo completo.
+
+Para saber el coeficiente de determinación ajustado del nuevo modelo, se ajusta primero dicho modelo y se observa en el resumen el coeficiente de determinación ajustado:
+
+```{r}
+lm_peru_adj <- lm(Systol~ Age + Years + Fraction + Weight + Height + Chin + Forearm,
+                  data = peru_n)
+summary(lm_peru_adj)
+```
+
+El coeficiente de determinación ajustado en el modelo reducido es de 0.63 mientras que el del modelo completo es de 0.61, por lo que sí que explica un mayor porcentaje de la variación del modelo. Por ello, se consideraría mejor este modelo reducido (explica el mismo o mayor porcentaje de la variación del modelo con menos variables, siguiendo entonces el principio de la navaja de Occam).   
+
+### (iii) ¿Se gana en eficiencia con el modelo reducido? Comparar los intervalos de confianza de la estimación del coeficiente de la variable *Age*.
+
+Al tener el modelo ajustado un coeficiente de determinación similar o mejor que el original con un menor número de predictores, se supone que es por lo tanto más eficiente. Para saber si se gana eficiencia con el modelo reducido se observan los intervalos de confianza del coeficiente de la variable *Age* al 95%. De esta manera se puede observar la precisión de ambos modelos.
+```{r}
+confint(lm_peru_n)
+```
+
+```{r}
+confint(lm_peru_adj)
+```
+
+
+El intervalo de confianza de la variable *Age* en el modelo completo es de (-1.81,-0.56) y un coeficiente de -1.19 mientras que en el modelo reducido es de (-1.81,-0.59) con un coeficiente de -1.20. Esto indica que la precisión en la estimación del coeficiente de la variable *Age* es similar, por lo que el modelo reducido es más eficiente, ya que con una menor cantidad de variables se obtiene el mismo ajuste.
+
+## (d) Los investigadores sugieren adoptar el modelo reducido que contenga únicamente las variables significativas ($\alpha = 0.1$) con el test **t** en sustitución del modelo completo con las 9 variables explicativas. ¿Es ese un buen criterio de selección? Realizar un test adecuado que resuelva su sugerencia. Discutir el resultado en consonancia con los resultados obtenidos en el apartado anterior.
+
+El criterio de selección comentado en el apartado en principio está bien fundamentado, ya que así tan solo se escogerían las variables más significativas para el ajuste del modelo. Algún problema que puede dar tal reducción es que disminuya el coeficiente de determinación al eliminar algunas variables que puedan explicar algún porcentaje de la varianza en la variable respuesta.   
+
+Para saber si la selección ha sido una buena idea, se puede realizar un análisis de la varianza o ANOVA para saber si ha habido diferencias significativas entre el modelo completo y el anidado. En este ANOVA la hipótesis nula es que no hay diferencias significativas enre los dos modelos, y la hipótesis alternativa que sí hay diferencias significativas entre los modelos. En este análisis consideramos $\alpha = 0.05$.  Para realizar el ANOVA primero se requiere del ajuste un modelo con las variables con $\alpha = 0.1$. Cabe mencionar que se considera como modelo completo el que contiene 38 variables (al haber eliminado el outlier). Las variables del modelo con $\alpha < 0.1$ son *Age*, *Years*, *Fraction*, *Weight* y *Forearm*.
+
+```{r}
+lm_peru_sig <- lm(Systol~Age + Years + Fraction + Weight + Forearm,
+                  data = peru_n)
+```
+
+```{r}
+anova(lm_peru_n,lm_peru_sig)
+```
+
+El análisis de varianza indica que no hay diferencias significativas entre los dos modelos (p-valor > 0.05). Esto indica que la sugerencia de los investigadores es acertada, ya que siguiendo el principio de la navaja de Occam es preferible usar el modelo más simple, siendo en este caso el modelo reducido. Además se puede observar que las variables utilizadas son las 5 variables explicativas seleccionadas en el apartado (d) de este ejercicio.
+
+## (e) Comprobar si hemos solucionado el problema de multicolinealidad en el modelo reducido del apartado anterior. Como los investigadores no quieren prescindir de más variables, se plantea una regresión **Partial Least Squares** (PLS). ¿Cuantas componentes se necesitan para minimizar el RMSEP? Calcular los coeficientes de las variables originales, también para $\beta_0$, que proporciona este método con el número de componentes necesario. ¿Es adecuado este método de regresión con estas variables? ¿Es útil?
+
+Para observar el problema de multicolinealidad se realizan los mismos análisis que en el apartado (a) pero con el modelo reducido:
+
+Para saber si existe multicolinealidad en el modelo, se puede observar el resumen de éste:
+```{r}
+summary(lm_peru_sig)
+```
+
+En este caso todas las variables (como cabe esperar debido a lo hecho en el anterior apartado) son significativas para el ajuste del modelo, siendo *Forearm* la menos significativa de éstas.
+
+Para obtener pruebas de una posible multicolinealidad se realiza una tabla de correlaciones con las variables del modelo:
+
+```{r}
+round(cor(peru_n[,c(1,2,3,4,7,10)]),2)
+```
+
+Se sigue observando la misma correlación positiva entre *Age* y *Years* y *Fraction* con las dos variables anteriores. En comparación con el modelo del apartado (a) ya no se encuentran las correlaciones que aparecían entre las otras variables (debido a que ya no están las variables en sí) por lo que la multicolinealidad se ha visto considerablemente reducida.
+
+Ahora se realiza la decomposición de eigen de $X^T X$:
+
+```{r}
+x <- model.matrix(lm_peru_sig)
+e <- eigen(t(x) %*% x)
+e$val
+sqrt(e$val[1]/e$val)
+```
+
+Se observa que siguen presentes valores elevados en distintos "eigenvalues." Esto implica que sigue existiendo más de una combinación linear.   
+
+Ahora comprobamos el factor de inflación de la varianza (FIV):
+
+```{r}
+car::vif(lm_peru_sig)
+```
+
+Se sigue encontrando una inflación elevada de la varianza en las variables *Years* y *Fraction* indicando la colinealidad por lo que se ha podido observar en el análisis de colinealidad del modelo reducido, que sigue existiendo multicolinealidad.  
+
+
+Como se indica en el apartado, se pretende realizar una regresión PLS para evitar prescindir de más variables. Primero se ajusta el modelo y se utiliza la validación cruzada (crossvalidation) para determinar el número de componentes en la predicción:
+
+```{r}
+set.seed(111)
+pls_peru <- plsr(Systol~Age + Years + Fraction + Weight + Forearm,
+                 data = peru_n, validation = "CV")
+plsCV <- RMSEP(pls_peru, estimate = "CV")
+```
+
+```{r}
+plot(plsCV)
+```
+```{r}
+which.min(plsCV$val)
+```
+
+Según los resultados obtenidos en la regresión PLS, se necesitan de 6 componentes (el intercepto y los 5 predictores) para obtener el el RMSEP mínimo posible.   
+
+Para obtener los coeficientes de las variables originales  utilizando los 6 componentes se extraen los valores del modelo realizado con los componentes necesarios:
+```{r}
+coef(pls_peru, intercept = TRUE)
+```
+
+Se observa que los coeficientes de regresión utilizando el método PLS son los mismos (o similares) que en el modelo reducido, por lo que el método PLS no parece que haya sido de utilidad a la hora de reducir el modelo. Al seguir utilizando todos los componentes del modelo equivalentes al intercepto y los predictores, no ha habido cambios significativos, por lo que no se considera útil este método de regresión. Aun así, el método PLS se suele utilizar en modelos que tienen una alta correlación, como es el caso del modelo utilizado, así que el planteamiento de su uso en este modelo es adecuado.
+
+## (f) Siguiendo con el modelo reducido, otra posibilidad es utilizar la **Ridge Regression**. ¿Cuales son los coeficientes obtenidos? Explicar brevemente las ventajas e inconvenientes de este método frente a la selección de variables. Calcular el RMSE de la regresión OLS, PLS (con 5, 4, 3 y 2 componentes) y Ridge (con $\lambda$ óptima por GCV) para el modelo reducido.
+
+Se ajusta el modelo de Ridge Regression con las variables utilizadas en el modelo reducido:
+
+```{r}
+rg_peru <- lm.ridge(Systol~Age + Years + Fraction + Weight + Forearm,
+                    data = peru_n, lambda=(seq(0,50,0.001)))
+```
+
+De esta manera se pueden observar los coeficientes del modelo de la misma manera que en el modelo PLS:
+```{r}
+head(coef(rg_peru))
+```
+
+Los coeficientes para cada variable son los mismos (o similares) a los del modelo reducido, pero van variando conforme se modifica $\lambda$. Por ello es recomendable encontrar el valor óptimo de $\lambda$.
+```{r}
+nGCV <- which.min(rg_peru$GCV)
+lGCV <- rg_peru$lambda[nGCV]
+lGCV
+```
+
+Por lo tanto con este nuevo valor se realiza de nuevo el modelo con el valor de $\lambda$ óptimo:
+
+```{r}
+rg_peru_opt <- lm.ridge(Systol~Age + Years + Fraction + Weight + Forearm,
+                        data = peru_n, lambda= lGCV)
+coef(rg_peru_opt, intercept = TRUE)
+```
+
+
+La ventaja de este método es que permite reducir los modelos teniendo en cuenta las multicolinealidad entre las distintas variables, para así ajustarlos de manera más eficiente y obtener una reducción de la varianza. Sin embargo, esto va ligado a la principal desventaja del método. Ésta es que los modelos ajustados con este método tienen coeficientes sesgados. La presencia de coeficientes sesgados en el modelo implica que en algunos casos las predicciones realizadas con un modelo ajustado mediante éste método se encuentre alejada de la realidad.   
+
+Ahora se van a utilizar los distintos modelos obtenidos para calcular su respectivo RMSE:   
+
+Para calcular el RMSE de la regresión OLS se utiliza la misma ecuación que la que ya se utilizó en la PEC anterior:
+```{r}
+sqrt(mean(lm_peru_sig$residuals^2))
+```
+
+Para calcular el RMSE de la regresión utilizando el método PLS (con 5, 4, 3 y 2 componentes respectivamente) se puede utilizar la función `RMSEP()`:
+
+```{r}
+RMSEP(pls_peru, ncomp = 2:5, estimate = "CV", intercept = FALSE)
+```
+
+En el caso de Ridge Regression al utilizar el paquete MASS no existe una función de predicción, por lo que se realizará un ajuste a partir de otra función del paquete caret:
+```{r}
+rg_peru_opt_fit <- train(Systol~Age + Years + Fraction + Weight + Forearm,
+                         data = peru_n, method = "ridge")
+rg_peru_opt_fit$results
+```
+```{r}
+rg_peru_opt_fit$bestTune
+```
+
+El RMSE con el mejor valor (lambda óptimo) usando ridge regression es 9.3.
+
+
+## (g) Sabemos que el RMSE calculado en un modelo para todos los datos observados es muy optimista. Es mejor un cálculo por validación cruzada. Con el modelo reducido de los apartados anteriores y para comparar los métodos estudiados OLS, PLS (con 4 componentes) y Ridge (con $\lambda$ óptimo por GCV) haremos lo siguiente:
+
+Se ajusta cada modelo con los parámetros requeridos a partir del train y test que se piden, obteniendo finalmente un conjunto de 1000 valores de RMSE para cada método:
+
+```{r}
+
+repeticiones_lm <- rep(0,1000)
+repeticiones_pls <- rep(0,1000)
+repeticiones_ridge <- rep(0,1000)
+for (i in seq(1:1000)) {
+  sample <- sample.int(nrow(peru_n), size = 8, replace = F)
+  test_peru <- peru_n[sample, ]
+  train_peru <- peru_n[-sample,]
+  
+  
+  lm_peru_sig_t <- lm(Systol~Age + Years + Fraction + Weight + Forearm,
+                      data = train_peru)
+  pls_peru_t <- plsr(Systol~Age + Years + Fraction + Weight + Forearm,
+                     data = train_peru, validation = "CV",ncomp = 4)
+  rg_peru_t <- lm.ridge(Systol~Age + Years + Fraction + Weight + Forearm,
+                        data = train_peru, lambda=(seq(0,50,0.001)))
+  nGCV_t <- which.min(rg_peru_t$GCV)
+  lGCV_t <- rg_peru_t$lambda[nGCV]
+  rg_peru_t_lgcv <-train(Systol~Age + Years + Fraction + Weight + Forearm,
+                        data = train_peru, method = "ridge")
+  
+  
+  prediccion_lm <- predict(lm_peru_sig_t,
+                           newdata = test_peru, type = "response")
+  prediccion_pls <- predict(pls_peru_t,
+                            newdata = test_peru, type = "response")
+  prediccion_ridge <- predict(rg_peru_t_lgcv,
+                              newdata = test_peru)
+  
+  rmse_lm_peru <- RMSE(prediccion_lm,test_peru$Systol)
+  rmse_pls_peru <- RMSE(prediccion_pls,test_peru$Systol)
+  rmse_ridge_peru <- RMSE(prediccion_ridge, test_peru$Systol)
+  repeticiones_lm[i] <- rmse_lm_peru
+  repeticiones_pls[i] <- rmse_pls_peru
+  repeticiones_ridge[i] <- rmse_ridge_peru
+}
+```
+
+Con los valores de todos los rmse de cada método se puede obtener una media para obtener así un rmse estimado:
+```{r}
+mean(repeticiones_lm)
+mean(repeticiones_pls)
+mean(repeticiones_ridge)
+```
+Por lo tanto el valor medio del rmse para OLS es 8.46, para el método PLS 11.91 y para ridge 8.49 pareciendo ser el mejor método (el que tiene menor RMSE) es el OLS.   
+
+Se puede observar en un histograma la distribución de los resultados en cada método:
+```{r}
+par(mfrow=c(2,2))
+hist(repeticiones_lm, main = "OLS")
+hist(repeticiones_pls, main = "PLS")
+hist(repeticiones_ridge, main = "Ridge Regression")
+```
+En los tres histogramas se observa que los tres métodos siguen una distribución normal.   
+
+Para comparar gráficamente cúal de los métodos es más preciso a la hora de realizar las predicciones, un buen gráfico es el de cajas:
+```{r}
+boxplot(repeticiones_lm, repeticiones_pls, repeticiones_ridge, main = "Gráfico de cajas de los distintos métodos", ylab = "RMSE",
+        names = c("OLS", "PLS", "Ridge"))
+```
+
+Se observa que el método que tiene un menor RMSE y una media con una menor desviación estándar y por lo tanto más precisión en las 1000 repeticiones está igualado entre el método OLS y Ridge. En cambio el método PLS tiene una distribución más amplia de resultados con una media sobrepasando 10 de RMSE, implicando que este método es peor para ajustar el modelo del ejercicio. 
+
+
+
+## (h) Calcular los grados de libertad de la Ridge regression para el $\lambda$ óptimo del apartado (e)
+No he encontrado la manera de solucionar este apartado.
+
+# Ejercicio 2
+
+Se lee la tabla adjunta en el ejercicio:
+```{r}
+cancer <- read.delim("T33.1", sep = "", header = FALSE)
+```
+
+Posteriormente se eliminan las columnas que no aportan información (las tres primeras) y se nombran las columnas según los nombres que se introdujeron en el artículo:
+```{r}
+cancer <- cancer[,c(-1:-3)]
+colnames(cancer) <- c("Case", "Sex", "Age", "A", "B", "C", "D")
+```
+
+También se eliminan los símbolos + que se encuentran en las columnas A y C:
+```{r}
+# Se introduce as.integer para que no se interpreten estas columnas como "character", complicando posteriores análisis
+cancer$A <- as.integer(gsub('\\+', '', cancer$A))
+cancer$C <- as.integer(gsub('\\+', '', cancer$C))
+```
+
+Se crea un vector con los tipos de cáncer ordenados respectivamente conforme se encuentran en la tabla y se añaden como una nueva columna:
+```{r}
+type <- c(rep("Stomach", 13), rep("Bronchus", 17), rep("Colon", 17), rep("Rectum", 7),
+          rep("Ovary", 6), rep("Breast", 11), rep("Bladder", 7), rep("Kidney", 8),
+          rep("Gallbladder", 2), rep("Esophagus", 2), rep("Reticulum cell sarcoma", 2),
+          rep("Prostate", 2), "Uterus", "Brain", rep("Pancreas",3),
+          "Chronic lymphatic leukemia") 
+
+cancer$Type <- type
+```
+
+
+
+## (a) Estudiar la transformación que mejora la distribución de los datos C y los datos D (100 observaciones en cada caso). Se puede utilizar el método de Box-Cox. Una vez transformados, comparar si el tiempo de supervivencia C es superior al de los controles D con todas las observaciones.   
+
+Se utiliza el método de transformación Box-Cox para saber la mejor transformación tanto para los datos de C como de D:
+
+```{r}
+BoxCoxTrans(cancer$C)
+```
+
+```{r}
+BoxCoxTrans(cancer$D)
+```
+
+
+
+Ambas variables tienen un valor estimado de $\lambda = 0$ por lo que lo recomendable es realizar una transformación logarítmica de estas dos variables.
+
+```{r}
+cancer$C <- log(cancer$C)
+cancer$D <- log(cancer$D)
+```
+
+Ahora se realiza una comparación en todas las observaciones que indicará como TRUE si la observación de C es mayor a la de D y viceversa. Se puede observar en una tabla:
+```{r}
+compare <- ifelse(cancer$C > cancer$D, TRUE, FALSE)
+table(compare)
+```
+
+Se ha encontrado que hay 13 observaciones donde el tiempo de supervivencia de los controles D es superior a la de C.
+
+
+## (b) Ahora estamos interesados en comparar la mejora en función del tipo de cáncer. Nos centraremos exclusivamente en los tres tipos de cáncer de la tabla 1 de más arriba y no tendremos en cuenta el sexo... Calcular los elementos de dicha tabla con la matriz de diseño *X* de este modelo y resolver con ellos el contraste $H_0 : \mu_1 = \mu_2 = \mu_3$ cuando la variable respuesta Y es el logaritmo de la razón entre la supervivencia de los tratados y la supervivencia de los controles. ¿Cual es la conclusión?  
+
+Como sólo se van a utilizar los 3 tipos de cáncer de la tabla 1, se crea una nueva tabla con tan solo esos tipos de cáncer:
+```{r}
+cancer_tabla <- cancer[cancer$Type == "Stomach" | cancer$Type == "Bronchus" | cancer$Type == "Colon",]
+```
+
+La matriz de diseño del modelo mostrado es el mismo que el de la "one-way anova" o anova de un factor, por lo que pasamos la variable *Type* a categórica (factor) para así poder utilizarla en el formato correcto.
+```{r}
+cancer_tabla$Type <- as.factor(cancer_tabla$Type)
+```
+
+```{r}
+cancer_tabla$C <- exp(cancer_tabla$C)
+cancer_tabla$D <- exp(cancer_tabla$D)
+```
+
+Con los datos facilitados se encuentra la matriz del modelo sin intercepto:
+```{r}
+head(model.matrix(log(C / D)~ Type -1, data = cancer_tabla))
+```
+
+A partir de esta matriz se puede realizar el "one-way anova" o la anova de un factor. De esta manera se contrasta la hipótesis nula en que la media de los factores (tipos de cáncer) son iguales entre ellas (con $\alpha = 0.05$). Además cabe tener en cuenta que se ha de eliminar el intercepto (como indica el apartado):
+```{r}
+lm_cancer_tabla <- lm(log(C / D)~ Type -1,
+                      data = cancer_tabla)
+summary(lm_cancer_tabla)
+```
+Según el resumen del modelo todos los tipos de cáncer son significantes (p-valor <0.05) a la hora de ajustar el modelo, siendo el modelo significativo (p-valor < 0.05).   
+
+Ahora se comprueba la normalidad y homogeneidad del modelo. Para la normalidad se realiza un test de Shapiro-Wilk, donde la hipótesis nula es que los residuos del modelo siguen una distribución normal (con $\alpha = 0.05$):
+```{r}
+shapiro.test(lm_cancer_tabla$residuals)
+```
+Se confirma entonces (con un p-valor > 0.05) la hipótesis nula, es decir, que el modelo sigue una distribución normal.    
+Para estudiar la homogenidad del modelo se realiza un test de Bartlett, donde la hipótesis nula (con $\alpha = 0.05$) es que el modelo tiene homogeneidad de varianza:
+```{r}
+bartlett.test(log(C / D)~ Type -1,
+              data = cancer_tabla)
+```
+Se confirma (con un p-valor > 0.05) la hipótesis nula, por lo que el modelo tiene homogeneidad de varianza.   
+
+Ahora se realiza un análisis de varianza del modelo, donde se contrasta la hipótesis nula (con $\alpha = 0.05$) en que no hay diferencias significativas entre las medias de supervivencia entre distintos tipos de cáncer:
+```{r}
+anova_cancer <- anova(lm_cancer_tabla)
+anova_cancer
+```
+
+
+El p-valor del contraste de hipótesis (p-valor < 0.05) rechaza la hipótesis nula, indicando que la media de supervivencia es diferente en almenos un tipo de cáncer. Se encuentra que el factor tiene 3 grados de libertad y 44 los grados de libertad del error (residuales), la media de cuadrados del grupo es de 39.625 y la del error (residuales) 1.523, la suma de cuadrados del grupo es 118.88, y la de los residuos 67.02, y la suma de cuadrados total (SStotal) no se encuentra en la tabla pero se puede calcular, ya que es la suma de cuadrados del grupo con el del error (SSE):
+```{r}
+sstotal <- 118.876 + 67.021
+sstotal
+```
+Por lo que el SStotal es de 185.897. Si se quiere calcular el valor de F manualmente se divide la media de la suma de cuadrados del grupo  entre la media de la suma de cuadrados del error:
+```{r}
+F <- 39.625 / 1.523
+F
+```
+
+
+En resumen, la conclusión que se puede sacar de este apartado es que existen diferencias significativas entre las medias de los distintos grupos de cáncer.
+
+
+
+## (c) La edad de los pacientes presenta una cierta variabilidad y puede influir en su supervivencia. Añadir a la matriz *X* del apartado anterior el vector columna con las edades centradas. Utilizar las sumas de cuadrados de los residuos de este modelo y del anterior para contrastar la importancia de ajustar con la edad. ¿Se puede utilizar un test **t** de Student?   
+
+Para saber si la edad de los pacientes puede influir a la supervivencia, se ajusta un nuevo modelo añadiendo las edades mostradas en la tabla centradas. Se compara el modelo obtenido con el del anterior apartado para saber si el modelo cambia significativamente al añadir la edad. Se indicará como hipótesis nula (con $\alpha = 0.05$) que ambos modelos no tienen diferencias significativas entre ellos.
+```{r}
+lm_cancer_tabla_edad <- lm(log(C / D)~ Type + scale(Age, center = TRUE, scale = FALSE) -1,
+                           data = cancer_tabla)
+anova(lm_cancer_tabla, lm_cancer_tabla_edad)
+```
+
+Se observa que el nuevo modelo sigue indicando que se acepta la hipótesis nula (p-valor > 0.05), por lo que se acepta que los dos modelos no tienen diferencias significativas entre ellos. Esto implica que la variable *Age* no parece tener un efecto significativo en el ajuste del modelo.   
+Además se puede obtener la suma de cuadrados del nuevo modelo mediante un análisis de varianza de éste:
+```{r}
+anova(lm_cancer_tabla_edad)
+```
+
+Se puede observar que este modelo tiene una suma de cuadrados de los residuos más baja que el modelo ajustado en el apartado (b) respecto a los residuos, (siendo 66.71 mientras que en el modelo del anterior apartado era de 67.02), mientras que respecto a la la suma de cuadrados del grupo es similar entre los dos modelos. Esto puede indicar que la variable *Age* mejora en cierta medida el ajuste del modelo (ya que su introducción al modelo disminuye su RMSE) aunque ésta variable no sea significativa.
+
+Se puede utilizar el test t de student para observar si la edad es significativa para el ajuste del modelo (con $\alpha = 0.05$), observable en el resumen de éste:
+```{r}
+summary(lm_cancer_tabla_edad)
+```
+Se indica mediante el p-valor del test t (p-valor > 0.05) que la variable *Age* no afecta significativamente al ajuste del modelo, por lo que la variable no parece ser importante en el modelo.   
+
+## (d) Aunque la regresión de la edad en el modelo anterior pudiera no ser importante, se decidió que cada grupo debería tener su propia regresión sobre la edad para verificar si la edad no es importante en niguno de los grupos. Modificar adecuadamente la matriz de diseño para acomodar esta nueva situación y completar el test para la hipótesis nula de que la regresión sobre la edad es la misma en los tres grupos de cáncer. ¿Cual es la conclusión?  
+
+Se ajustan los nuevos modelos con lo comentado en el enunciado:
+
+```{r}
+cancer_tabla_stomach <- subset(cancer_tabla, Type == "Stomach")
+cancer_tabla_bronchus <- subset(cancer_tabla, Type == "Bronchus")
+cancer_tabla_colon <- subset(cancer_tabla, Type == "Colon")
+
+lm_cancer_tabla_stomach <- lm(log(C / D) ~ scale(Age, center = TRUE, scale = FALSE) -1,
+                        data = cancer_tabla_stomach)
+lm_cancer_tabla_bronchus <- lm(log(C / D) ~ scale(Age, center = TRUE, scale = FALSE) -1,
+                        data = cancer_tabla_bronchus)
+lm_cancer_tabla_colon <- lm(log(C / D) ~ scale(Age, center = TRUE, scale = FALSE) -1,
+                        data = cancer_tabla_colon)
+```
+
+```{r}
+summary(lm_cancer_tabla_stomach)
+summary(lm_cancer_tabla_bronchus)
+summary(lm_cancer_tabla_colon)
+```
+Se observa en los tres modelos que la edad no mejora el ajuste del modelo significativamente, ya que se acepta la hipótesis nula del test t realizado en cada modelo (p-valor > 0.05).   
+
+Ahora se realiza un test anova, donde se indica como hipótesis nula en el modelo ajustado del apartado (c) (con $\alpha = 0.05$) que las medias de los tres grupos de cáncer sobre la edad son iguales. Teniendo en cuenta esto, se realiza el análisis de varianza:   
+
+```{r}
+anova(lm_cancer_tabla_edad)
+```
+
+El test F indica que se acepta la hipótesis nula (p-valor > 0.05) para la edad, demostrando que la regresión sobre la edad es la misma en los tres grupos de cáncer.   
+
+
+# Ejercicio 3
+
+Se leen los datos adjuntos al ejercicio para poder utilizarlos en R:
+```{r}
+diabetes <- read.csv("diabetes.txt", header = TRUE)
+```
+
+## (a) Ajustar un modelo de regresión logística para predecir la diabetes utilizando todas las otras variables como predictoras. Dar la ecuación del modelo obtenido y clasificar las variables según sean factores protectores o de riesgo para la diabetes.
+
+Se ajusta el modelo de regresión logística como indica el apartado:
+
+```{r}
+logit_diabetes <- glm(relevel(diabetes, ref = "neg") ~ .,
+                      data = diabetes, family = "binomial")
+summary(logit_diabetes)
+```
+
+Se ha de tener en cuenta que la variable *diabetes* se considera como un valor binomial . Se ha ordenado dicho factor indicando el primer nivel como "neg" significando que no se ha desarrollado diabetes y el segundo nivel como "pos", indicando que sí se ha desarrollado diabetes.   
+
+El resumen del modelo indica mediante la diferencia entre la desviación nula y la residual que este modelo tiene un buen ajuste.   
+
+Para observar más fácilmente los coeficientes obtenidos, se redondean:
+```{r}
+round(logit_diabetes$coefficients, 3)
+```
+
+
+La ecuación del modelo obtenido (sin tener en cuenta que parte de las variables del modelo no son significativas para el ajuste del modelo) al basarse en una regresión logística, se basa en la probabilidad de aparición de diabetes (por lo que la respuesta obtenida es categórica, es decir, diabetes o no diabetes) entendiendo entonces que la ecuación cambia respecto a los modelos de regresión lineal realizados con anterioridad en este trabajo. La ecuación obtenida en este caso es:
+
+$$p = \frac{e^{-10.041 + 0.082 * pregnant + 0.038 * glucose - 0.001 * pressure + 0.011 * triceps -0.001 * insulin + 0.071 * mass + 1.141 * pedigree + 0.034 * age}}{1 +e^{-10.041 + 0.082 * pregnant + 0.038 * glucose - 0.001 * pressure + 0.011 * triceps -0.001 * insulin + 0.071 * mass + 1.141 * pedigree + 0.034 * age}} $$
+
+Como se ha comentado anteriormente, al ser el cálculo de una probabilidad de obtener diabetes y al ser 0 el no tener diabetes y 1 tener diabetes, todos los predictores que disminuyan esa probabilidad se considerarán factores protectores para la diabetes. Consecuentemente todos los predictores que aumenten la probabilidad en la ecuación se considerarán factores de riesgo para la diabetes.   
+Con lo observado previamente, se consideran factores protectores para la diabetes las variables *pressure* y *insulin*, mientras que los factores de riesgo para la diabetes son *pregnant*, *glucose*, *triceps*, *mass*, *pedigree* y *age*.   
+Cabe recalcar que algunas de las variables del modelo no son significativas para su ajuste (concretamente *pregnant*, *pressure*, *triceps*, *insulin* y *age*)
+
+## (b) Calcular el odds ratio de la variable *pedigree*, así como su intervalo de confianza.
+
+Los odds ratios se pueden obtener fácilmente a partir de los coeficientes calculados del modelo. Estos coeficientes son los log odds, por lo que realizando su exponente se obtiene el odds ratio:
+```{r}
+round(exp(logit_diabetes$coefficients),2)
+```
+
+Por lo tanto el odds ratio de *pedigree* es de 3.13.   
+
+Para calcular el intervalo de confianza:
+```{r}
+exp(cbind(coef(logit_diabetes), confint(logit_diabetes)))
+```
+
+Se observa que el intervalo de confianza del odd ratio en la variable *pedigree* es (1.38,7.37).
+
+## (c) Calcular el odds ratio y la probabilidad de tener diabetes para el individuo de la observación 9
+
+Se obtienen los valores de la observación 9:
+```{r}
+diabetes_c <- diabetes[9,]
+```
+
+Se realiza la predicción del individuo:
+```{r}
+predict_c <- predict(logit_diabetes,
+                     newdata = diabetes_c, type = "response")
+predict_c
+```
+
+Por lo tanto la probabilidad de que el individuo 9 tenga diabetes es del 22% (redondeado). Para obtener el odds ratio se divide la probabilidad por uno menos la probabilidad:
+```{r}
+odds_d <- (predict_c)/(1 - predict_c)
+odds_d
+``` 
+
+Por lo tanto el ratio de la probabilidad (o odds ratio) de que el individuo de la observación 9 sea diabético es de 0.28.
+
+## (d) ¿Como valoras la bondad de ajuste del modelo? Realizar los contrastes o cálculos que se consideren necesarios.
+
+Para valorar la bondad del ajuste se utiliza el test de bondad de Hosmer-Lemeshow. En este caso el test tiene como hipótesis nula que no hay evidencia de una mala bondad de ajuste en el modelo (con $\alpha = 0.05$):
+
+```{r}
+# Se obtienen los valores necesarios a partir de los valores ajustados. Si la probabilidad es menor a 0.5
+# se indica entonces como "no diabetes" y si es mayor a 0.5 como "sí diabetes".
+predicciones <- ifelse(test = logit_diabetes$fitted.values > 0.5, yes = 1, no = 0)
+hoslem.test(logit_diabetes$y, predicciones)
+```
+
+Se observa que se acepta la hipótesis nula (p-valor > 0.05) indicando que no hay evidencias significativas que indiquen que este modelo no esté correctamente ajustado.
+
+## (e) Considerar ahora el modelo reducido con las variables *pregnant*, *glucose*, *mass*, *pedigree* y *age.* ¿Es significativa la variable *pregnant*? Comparar los dos modelos.
+
+Se ajusta un nuevo modelo de regresión logístico con las variables que se piden en el apartado:
+
+```{r}
+logit_diabetes_e <- glm(relevel(diabetes, ref = "neg") ~ pregnant + glucose + mass + pedigree + age,
+                        data = diabetes, family = "binomial")
+summary(logit_diabetes_e)
+```
+
+La variable *pregnant* según el resumen del modelo indica que se acepta la hipótesis nula (p-valor > 0.05), por lo que implica que esta variable  no afecta significativamente al ajuste del modelo.   
+
+
+Para comparar los dos modelos, al ser modelos anidados, se puede realizar un análisis de la varianza entre los dos modelos. El contraste de la hipótesis consiste en que la hipótesis nula (con $\alpha = 0.05$) es que no existen diferencias significativas entre estos dos modelos.
+
+```{r}
+anova(logit_diabetes_e,logit_diabetes,test='LRT')
+```
+
+Se observa que se acepta la hipótesis nula (p-valor > 0.05), por lo que se considera que estos dos modelos tienen un ajuste similar. Siguiendo el principio de la navaja de Occam se utilizaría el modelo más simple, siendo el modelo ajustado en este apartado.   
